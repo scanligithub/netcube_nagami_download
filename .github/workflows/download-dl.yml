@@ -1,47 +1,43 @@
-name: Buildroot DL Pack
+name: Download Buildroot DL from GitLab
 
 on:
   workflow_dispatch: # 允许手动触发
-    inputs:
-      config_name:
-        description: 'Buildroot defconfig name'
-        required: true
-        default: 'netcube_nagami_basic_carrier_defconfig'
 
 jobs:
-  download-sources:
+  download-and-pack:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      # 1. 从 GitLab 克隆源码 (如果是私有仓库，需要配置 Token，见下文说明)
+      - name: Clone Buildroot from GitLab
+        run: git clone --depth 1 https://gitlab.com/netcube-systems-austria/buildroot.git buildroot-src
 
-      - name: Install Dependencies
+      # 2. 安装编译依赖
+      - name: Install Buildroot Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y sed make binutils build-essential gcc g++ bash patch \
           gzip bzip2 perl tar cpio unzip rsync file bc findutils wget git
 
+      # 3. 加载配置 (修正了你提到的 etcube 笔误，应为 netcube)
       - name: Configure Buildroot
-        run: make ${{ github.event.inputs.config_name }}
+        working-directory: buildroot-src
+        run: make netcube_nagami_basic_carrier_defconfig
 
-      - name: Download Sources (make source)
+      # 4. 下载所有依赖包 (核心步骤)
+      - name: Download All Sources
+        working-directory: buildroot-src
         run: make source
-        env:
-          # 可选：如果有些包需要 token，可以在 Settings -> Secrets 中配置
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
 
+      # 5. 打包 dl 目录
       - name: Compress DL Directory
-        run: |
-          # 打包 dl 目录，排除 git 缓存以减小体积（如果需要 git 历史则不要排除）
-          # 通常 Buildroot 只需要 git 的裸仓库引用，tar 压缩率很高
-          tar -czf buildroot-dl-${{ github.event.inputs.config_name }}.tar.gz dl/
+        working-directory: buildroot-src
+        run: tar -czf ../nagami-dl-pack.tar.gz dl/
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      # 6. 上传打包好的文件
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: buildroot-dl-${{ github.event.inputs.config_name }}.tar.gz
-          tag_name: dl-${{ github.run_number }}
-          name: "DL Pack for ${{ github.event.inputs.config_name }}"
-          draft: false
-          prerelease: true
+          name: nagami-buildroot-dl
+          path: nagami-dl-pack.tar.gz
+          retention-days: 5 # 保留 5 天，足够你下载了
