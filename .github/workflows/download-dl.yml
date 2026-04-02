@@ -1,0 +1,47 @@
+name: Buildroot DL Pack
+
+on:
+  workflow_dispatch: # 允许手动触发
+    inputs:
+      config_name:
+        description: 'Buildroot defconfig name'
+        required: true
+        default: 'netcube_nagami_basic_carrier_defconfig'
+
+jobs:
+  download-sources:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sed make binutils build-essential gcc g++ bash patch \
+          gzip bzip2 perl tar cpio unzip rsync file bc findutils wget git
+
+      - name: Configure Buildroot
+        run: make ${{ github.event.inputs.config_name }}
+
+      - name: Download Sources (make source)
+        run: make source
+        env:
+          # 可选：如果有些包需要 token，可以在 Settings -> Secrets 中配置
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+
+      - name: Compress DL Directory
+        run: |
+          # 打包 dl 目录，排除 git 缓存以减小体积（如果需要 git 历史则不要排除）
+          # 通常 Buildroot 只需要 git 的裸仓库引用，tar 压缩率很高
+          tar -czf buildroot-dl-${{ github.event.inputs.config_name }}.tar.gz dl/
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: buildroot-dl-${{ github.event.inputs.config_name }}.tar.gz
+          tag_name: dl-${{ github.run_number }}
+          name: "DL Pack for ${{ github.event.inputs.config_name }}"
+          draft: false
+          prerelease: true
